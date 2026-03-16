@@ -1,0 +1,105 @@
+[P0] TRACE ENABLED -> C:\Users\Paul\Desktop\Thesis\Code\VCODE\FSS-KRE-master\libmpc\../test\vidpf_trace_p0.log
+[P0] key[0].key_idx=false root_seed=b9e54e90f3053dce20c9094ecab2a5b8
+[P0] mask_bits[0..n]=[false, true, true, true, false, false, true, true, true, false, false, true, false, true, false, true, true, true, true, true, false, true, false, true, true, false, false, false, true, false, false]
+[P0] t[0..n]=[false, true, false, false, false, true, false, true, false, false, true, true, true, false, false, false, true, true, true, false, true, true, true, true, false, false, true, false, false, true, false]
+[P0] init_state[0]: seed=b9e54e90f3053dce20c9094ecab2a5b8 bit=false tag=00000000000000000000000000000000
+[P0] cor_tag[0]=893333c9e69e32db7451196986de4a82
+[P0] cor_tag[1]=b44e78d229b9248834c208264b6682a8
+[P0] cor_tag[2]=cf1ce43144787938b81d2784da048c30
+[P0] R0 j=0: t[0]=false t[1]=true
+[P0] R0 j=0: state00(dir=false) seed=2314b33d0942312ff287c142ad430db0 bit=true tag=50e5aa8e0e5468ca375d1037cad4f2c9
+[P0] R0 j=0: state10(dir=true) seed=2948171b369345569b425d0a475f6e68 bit=true tag=e944a7b29a3dfc4a0d0e138770784958
+[P0] R1 sigma=false
+[P0] R1 j=0: chose_sigma=false old_state seed=2314b33d0942312ff287c142ad430db0 bit=true tag=50e5aa8e0e5468ca375d1037cad4f2c9 path=[false]
+[P0] R1 j=0: state_idpf[0](fwd) seed=3b1c3b84ddc83e7848e6123ab0c7713c bit=true tag=444c555065f35a013623e12dbe3d4e45 path=[false, true]
+[P0] R2 sigma=false
+[P0] R2 j=0: chose_sigma=false old_state seed=3b1c3b84ddc83e7848e6123ab0c7713c bit=true tag=444c555065f35a013623e12dbe3d4e45 path=[false, true]
+[P0] R2 j=0: state_idpf[0](fwd) seed=eb89e0ed144cdba7befc74635c854930 bit=true tag=823471a4e37a81a2a0f75f1dfe4210e1 path=[false, true, false]
+[P0] R3 sigma=true
+[P0] R3 j=0: chose_sigma=true old_state seed=57c4a2684d4ab5f6083a86c273831bf6 bit=false tag=64f09157bf0c93d6dfdd4893447f06cc path=[false, true, true]
+[P0] R3 j=0: state_idpf[0](fwd) seed=3546e0f039aef3344f8524de62b5fa21 bit=true tag=cd88eb0e3d71a57c9cfdb546d66ddee1 path=[false, true, true, false]
+[P0] R4 sigma=false
+[P0] R4 j=0: chose_sigma=false old_state seed=3546e0f039aef3344f8524de62b5fa21 bit=true tag=cd88eb0e3d71a57c9cfdb546d66ddee1 path=[false, true, true, false]
+[P0] R4 j=0: state_idpf[0](fwd) seed=846414da481c882168bb23dd2c57cc97 bit=true tag=f8db4f6b8a7cde1177ae3fb9d03c22ca path=[false, true, true, false, false]
+[P0] R5 sigma=false
+[P0] R5 j=0: chose_sigma=false old_state seed=846414da481c882168bb23dd2c57cc97 bit=true tag=f8db4f6b8a7cde1177ae3fb9d03c22ca path=[false, true, true, false, false]
+[P0] R5 j=0: state_idpf[0](fwd) seed=e18865fa2d69087440c94d62a3ce3765 bit=false tag=52854aafdea9899e98807ee81e835dc5 path=[false, true, true, false, false, true]
+[P0] R6 sigma=true
+[P0] R6 j=0: chose_sigma=true old_state seed=2daceb7230d37213e8b6f8e9b0b95e97 bit=true tag=a02d20f86239c50e68651f598bde87b0 path=[false, true, true, false, false, false]
+[P0] R6 j=0: state_idpf[0](fwd) seed=90051282d6ffe8b35e5f5795178a751c bit=false tag=fa76d03bfc566c3a532bdcb75fdafced path=[false, true, true, false, false, false, false]
+[P0] R7 sigma=true
+[P0] R7 j=0: chose_sigma=true old_state seed=8097c69097242235c878b028a20fa37f bit=true tag=c89c9a3e7d8e0f5ad1cbecbbaf9cb51c path=[false, true, true, false, false, false, true]
+[P0] R7 j=0: state_idpf[0](fwd) seed=353b5546d522b7fc1bb61ecd67e43ff9 bit=true tag=494f70a62600cebdc017da6695120801 path=[false, true, true, false, false, false, true, true]
+[P0] R8 sigma=true
+[P0] R8 j=0: chose_sigma=true old_state seed=6225e8726b6fc0627bb54bdc70012d3d bit=false tag=d5361930547a61d436d6d64d9128e9e3 path=[false, true, true, false, false, false, true, false]
+[P0] R8 j=0: state_idpf[0](fwd) seed=54b30c3e5d442b86a90ec8914a5058fe bit=true tag=4a2ae0c795c536c38f8429392819b155 path=[false, true, true, false, false, false, true, false, false]
+[P0] R9 sigma=false
+[P0] R9 j=0: chose_sigma=false old_state seed=54b30c3e5d442b86a90ec8914a5058fe bit=true tag=4a2ae0c795c536c38f8429392819b155 path=[false, true, true, false, false, false, true, false, false]
+[P0] R9 j=0: state_idpf[0](fwd) seed=88e33b03c6da7c1e7e4ea82e6c9158a8 bit=true tag=504b18c27c0697c450e7251e3527ccfc path=[false, true, true, false, false, false, true, false, false, false]
+[P0] R10 sigma=false
+[P0] R10 j=0: chose_sigma=false old_state seed=88e33b03c6da7c1e7e4ea82e6c9158a8 bit=true tag=504b18c27c0697c450e7251e3527ccfc path=[false, true, true, false, false, false, true, false, false, false]
+[P0] R10 j=0: state_idpf[0](fwd) seed=1b39d13c057ecf28e3eee93803da95b6 bit=false tag=1470ea972462acd65a1af7babc27d94c path=[false, true, true, false, false, false, true, false, false, false, true]
+[P0] R11 sigma=false
+[P0] R11 j=0: chose_sigma=false old_state seed=1b39d13c057ecf28e3eee93803da95b6 bit=false tag=1470ea972462acd65a1af7babc27d94c path=[false, true, true, false, false, false, true, false, false, false, true]
+[P0] R11 j=0: state_idpf[0](fwd) seed=695372a578c3312a503458e84bee52bd bit=true tag=df3f75d7b2d007c260b2db7db3104fa8 path=[false, true, true, false, false, false, true, false, false, false, true, true]
+[P0] R12 sigma=false
+[P0] R12 j=0: chose_sigma=false old_state seed=695372a578c3312a503458e84bee52bd bit=true tag=df3f75d7b2d007c260b2db7db3104fa8 path=[false, true, true, false, false, false, true, false, false, false, true, true]
+[P0] R12 j=0: state_idpf[0](fwd) seed=96ee89e450ebd28d4f98eefe53496333 bit=true tag=3709c64699520cabeb5f1874edab873a path=[false, true, true, false, false, false, true, false, false, false, true, true, true]
+[P0] R13 sigma=false
+[P0] R13 j=0: chose_sigma=false old_state seed=96ee89e450ebd28d4f98eefe53496333 bit=true tag=3709c64699520cabeb5f1874edab873a path=[false, true, true, false, false, false, true, false, false, false, true, true, true]
+[P0] R13 j=0: state_idpf[0](fwd) seed=47088383713bd50c0b7556afb4577d35 bit=true tag=758ad95121e3c62c29bb58cad5eaf64c path=[false, true, true, false, false, false, true, false, false, false, true, true, true, false]
+[P0] R14 sigma=true
+[P0] R14 j=0: chose_sigma=true old_state seed=79aaa8559e156165ef6bccc8c5732c4f bit=false tag=6789ecf05f7d0254f26fc9a0cd37fc79 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true]
+[P0] R14 j=0: state_idpf[0](fwd) seed=fbba60a730289ee10c91e264c938ae7c bit=true tag=61afa2554e4f890d7af233075996e9b3 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false]
+[P0] R15 sigma=false
+[P0] R15 j=0: chose_sigma=false old_state seed=fbba60a730289ee10c91e264c938ae7c bit=true tag=61afa2554e4f890d7af233075996e9b3 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false]
+[P0] R15 j=0: state_idpf[0](fwd) seed=de81aaeae961e9665c91fc7313942989 bit=true tag=ad631c0d3180f0e97b656144648a7dc6 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, false]
+[P0] R16 sigma=true
+[P0] R16 j=0: chose_sigma=true old_state seed=d0d47f5ee69a511e4973fd4226a23bbf bit=false tag=968ea11c74212faf42f8970ac529aa39 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true]
+[P0] R16 j=0: state_idpf[0](fwd) seed=feaca3d3a45b140922ffe40bda1284c0 bit=true tag=6f80f1092a84a06a25147ef59cf7ebd5 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true]
+[P0] R17 sigma=false
+[P0] R17 j=0: chose_sigma=false old_state seed=feaca3d3a45b140922ffe40bda1284c0 bit=true tag=6f80f1092a84a06a25147ef59cf7ebd5 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true]
+[P0] R17 j=0: state_idpf[0](fwd) seed=8e2b97766428f85590f0610e037b663e bit=false tag=0f9a72f5beb8a78c561f15f007cb8886 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true]
+[P0] R18 sigma=false
+[P0] R18 j=0: chose_sigma=false old_state seed=8e2b97766428f85590f0610e037b663e bit=false tag=0f9a72f5beb8a78c561f15f007cb8886 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true]
+[P0] R18 j=0: state_idpf[0](fwd) seed=7ee891f4204ea927fbed722d54999bd8 bit=true tag=49c5dfa418a09010cafc030ea5a2363b path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true]
+[P0] R19 sigma=false
+[P0] R19 j=0: chose_sigma=false old_state seed=7ee891f4204ea927fbed722d54999bd8 bit=true tag=49c5dfa418a09010cafc030ea5a2363b path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true]
+[P0] R19 j=0: state_idpf[0](fwd) seed=e13cd29705206593892ee5b60515c689 bit=false tag=4b12acae2cf8e0133d97fb8751f2e062 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false]
+[P0] R20 sigma=false
+[P0] R20 j=0: chose_sigma=false old_state seed=e13cd29705206593892ee5b60515c689 bit=false tag=4b12acae2cf8e0133d97fb8751f2e062 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false]
+[P0] R20 j=0: state_idpf[0](fwd) seed=efe720f17c23a14ff7976b9549f9f502 bit=true tag=c785ab0c403ee46f56a52a10b92e9c64 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true]
+[P0] R21 sigma=false
+[P0] R21 j=0: chose_sigma=false old_state seed=efe720f17c23a14ff7976b9549f9f502 bit=true tag=c785ab0c403ee46f56a52a10b92e9c64 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true]
+[P0] R21 j=0: state_idpf[0](fwd) seed=968395cf933268ef2e1a3e91be08d165 bit=false tag=e97cb7739357611d8810322b7d185e55 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true]
+[P0] R22 sigma=false
+[P0] R22 j=0: chose_sigma=false old_state seed=968395cf933268ef2e1a3e91be08d165 bit=false tag=e97cb7739357611d8810322b7d185e55 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true]
+[P0] R22 j=0: state_idpf[0](fwd) seed=3b5e5fdb03e67015fee665d49e7f47fb bit=true tag=dc551d4f9ca9fb3ab0a4b5a51f68653d path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true]
+[P0] R23 sigma=false
+[P0] R23 j=0: chose_sigma=false old_state seed=3b5e5fdb03e67015fee665d49e7f47fb bit=true tag=dc551d4f9ca9fb3ab0a4b5a51f68653d path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true]
+[P0] R23 j=0: state_idpf[0](fwd) seed=d028ca7729272b05628e5c77f8a65a8e bit=true tag=61e71903752ba498cf21c66ee1eab32e path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, true]
+[P0] R24 sigma=true
+[P0] R24 j=0: chose_sigma=true old_state seed=255e7c2b91371efb0c6caa6afffe7c6a bit=false tag=a7d3134fe23746eef02f7b0dbc1c816f path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false]
+[P0] R24 j=0: state_idpf[0](fwd) seed=308f70bf09a1717411f794865bc410a8 bit=true tag=5d8726fc41f92a3f84f399b420b49d7e path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false]
+[P0] R25 sigma=false
+[P0] R25 j=0: chose_sigma=false old_state seed=308f70bf09a1717411f794865bc410a8 bit=true tag=5d8726fc41f92a3f84f399b420b49d7e path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false]
+[P0] R25 j=0: state_idpf[0](fwd) seed=a14d752dde62836e4b24cb2ec324e714 bit=true tag=97c9fd23ea003888f060423c0754b4a5 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false]
+[P0] R26 sigma=false
+[P0] R26 j=0: chose_sigma=false old_state seed=a14d752dde62836e4b24cb2ec324e714 bit=true tag=97c9fd23ea003888f060423c0754b4a5 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false]
+[P0] R26 j=0: state_idpf[0](fwd) seed=1f02a2117e785a4fade2ecc51ffedc65 bit=false tag=2486c368d0fdc4d43fabd45f3f900cec path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true]
+[P0] R27 sigma=false
+[P0] R27 j=0: chose_sigma=false old_state seed=1f02a2117e785a4fade2ecc51ffedc65 bit=false tag=2486c368d0fdc4d43fabd45f3f900cec path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true]
+[P0] R27 j=0: state_idpf[0](fwd) seed=89a34aee9605988f2f592233e282383a bit=true tag=2ca2c3e183695ce7e8d237c5f18b45b7 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false]
+[P0] R28 sigma=false
+[P0] R28 j=0: chose_sigma=false old_state seed=89a34aee9605988f2f592233e282383a bit=true tag=2ca2c3e183695ce7e8d237c5f18b45b7 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false]
+[P0] R28 j=0: state_idpf[0](fwd) seed=15ca1a40fcd4134dd6a94f376846d401 bit=false tag=2016c799b5b23af8b56319e595d81e3a path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false, false]
+[P0] R29 sigma=true
+[P0] R29 j=0: chose_sigma=true old_state seed=54a01ca7c68fe0adeccf714103ea98ca bit=true tag=41d3938917abdbd138bdb13780986367 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false, true]
+[P0] R29 j=0: state_idpf[0](fwd) seed=e572828d003880d90929d17c35221153 bit=false tag=f209d661df9a020ffe9447def61b67e7 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false, true, true]
+[P0] Last round sigma=false
+[P0] === FINAL STATE ===
+[P0] old_state[0]: level=29 seed=54a01ca7c68fe0adeccf714103ea98ca bit=true tag=41d3938917abdbd138bdb13780986367 path=[false, true, true, false, false, false, true, false, false, false, true, true, true, true, false, true, true, true, true, false, true, true, true, false, false, false, true, false, true]
+[P0] old_state[1]: level=29 seed=999f337959c6c34390769cdc15ce2c1f bit=false tag=a6b700c821a49fbaefe89ba77ef6a191 path=[true, true, true, false, false, true, false, true, true, true, true, false, true, false, false, false, true, true, false, true, true, true, true, true, false, false, true, false, true]
+[P0] old_state[2]: level=29 seed=f85cc644bfdbb0b7fc3bc6e1817011c8 bit=false tag=e959b25555d4ccd02c078d25e85dcf1e path=[true, true, true, true, false, false, false, true, false, true, true, true, false, false, true, false, true, true, false, true, true, false, true, true, false, true, true, false, true]
+[P0] aggregate_tag=54ef018171282e38e808cfdbd5c3d231
+[P0] VIDPF VERIFICATION PASSED
