@@ -40,28 +40,39 @@ thread_local! {
     };
 }
 
-/// σ(x_L ∥ x_R) = (x_L ⊕ x_R) ∥ x_L for 128-bit parent seeds (8 + 8 bytes).
+/// σ(x_L ∥ x_R) = (x_L ⊕ x_R) ∥ x_L for 128-bit parent seeds.
+///
+/// Implemented as a single `u128` shuffle: LLVM lowers this to a couple of
+/// general-purpose ops (no stack traffic), where the byte-loop version would
+/// touch memory 16 times.
 #[inline]
 pub fn half_tree_sigma(parent: &[u8; AES_KEY_SIZE]) -> [u8; AES_KEY_SIZE] {
-    let mut sigma = [0u8; AES_KEY_SIZE];
-    for i in 0..8 {
-        sigma[i] = parent[i] ^ parent[i + 8];
-    }
-    sigma[8..AES_KEY_SIZE].copy_from_slice(&parent[0..8]);
-    sigma
+    let p = u128::from_le_bytes(*parent);
+    let lp = p as u64;                         // low 64  bits = x_L
+    let rp = (p >> 64) as u64;                 // high 64 bits = x_R
+    let sigma = ((lp as u128) << 64) | ((lp ^ rp) as u128);
+    sigma.to_le_bytes()
 }
 
-/// Correlation-robust hash: AES-MMO on σ(parent).
+/// Correlation-robust hash: H_S(x) = AES_K(σ(x)) ⊕ σ(x).
+///
+/// Keeps σ, the AES input, and the AES output in a single 16-byte stack slot
+/// that LLVM can promote to an xmm register, and does the MMO XOR as one u128
+/// op. This removes the three separate `[u8; 16]` stack locals the previous
+/// version had.
 #[inline]
 pub fn half_tree_hs(aes: &Aes128, parent: &[u8; AES_KEY_SIZE]) -> [u8; AES_KEY_SIZE] {
-    let sigma = half_tree_sigma(parent);
-    let mut block = GenericArray::clone_from_slice(&sigma);
-    aes.encrypt_block(&mut block);
-    let mut out = [0u8; AES_KEY_SIZE];
-    for i in 0..AES_KEY_SIZE {
-        out[i] = block[i] ^ sigma[i];
+    let p = u128::from_le_bytes(*parent);
+    let lp = p as u64;
+    let rp = (p >> 64) as u64;
+    let sigma = ((lp as u128) << 64) | ((lp ^ rp) as u128);
+
+    let mut block_bytes = sigma.to_le_bytes();
+    {
+        let block = GenericArray::from_mut_slice(&mut block_bytes);
+        aes.encrypt_block(block);
     }
-    out
+    (u128::from_le_bytes(block_bytes) ^ sigma).to_le_bytes()
 }
 
 /// Public wrapper: calls H_S using the thread-local AES key (for benchmarking).
@@ -149,20 +160,34 @@ impl PrgSeed {
 
     pub fn expand_dir(self: &PrgSeed, left: bool, right: bool) -> PrgOutput {
         HT_EXPAND_AES.with(|aes| {
-            let h = half_tree_hs(aes, &self.key);
+            // Half-Tree IDPF expansion (see docs/I-DPF to half tree I-DPF.pdf, Fig. 1/2, line 5):
+            //     ⟨s_L || t_L⟩ || ⟨s_R || t_R⟩  =  H_S(parent) || (parent ⊕ H_S(parent))
+            // where H_S(x) = AES_K(σ(x)) ⊕ σ(x) and σ(x_L||x_R) = (x_L ⊕ x_R)||x_L.
+            // t_L = lsb(H_S(parent))   — low bit of the left child block
+            // t_R = lsb(parent ⊕ H_S(parent)) = lsb(parent) ⊕ lsb(H_S(parent))
+            //   → preserves the half-tree invariant  t_L ⊕ t_R = lsb(parent).
+            // Convention is non-inverted (true ≡ 1), matching root_bits = (false, true)
+            // and the `if bits.get(b) { apply correction }` uses in dpf.rs/idpf.rs.
+            let parent = u128::from_le_bytes(self.key);
+            let lp = parent as u64;
+            let rp = (parent >> 64) as u64;
+            let sigma = ((lp as u128) << 64) | ((lp ^ rp) as u128);
+
+            let mut block_bytes = sigma.to_le_bytes();
+            {
+                let block = GenericArray::from_mut_slice(&mut block_bytes);
+                aes.encrypt_block(block);
+            }
+            let h = u128::from_le_bytes(block_bytes) ^ sigma;
+
+            let t_l = ((h as u8) & 0x1) != 0;
+            let t_r = (((parent ^ h) as u8) & 0x1) != 0;
             let mut out = PrgOutput {
-                // Option A: fixed tuple so correction words carry control-path entropy (matches prior masked-stream behavior).
-                bits: (true, true),
+                bits: (t_l, t_r),
                 seeds: (PrgSeed::zero(), PrgSeed::zero()),
             };
-            if left {
-                out.seeds.0.key.copy_from_slice(&h);
-            }
-            if right {
-                for i in 0..AES_KEY_SIZE {
-                    out.seeds.1.key[i] = self.key[i] ^ h[i];
-                }
-            }
+            if left  { out.seeds.0.key = h.to_le_bytes(); }
+            if right { out.seeds.1.key = (parent ^ h).to_le_bytes(); }
             out
         })
     }
@@ -451,6 +476,28 @@ mod tests {
         let out = s.expand();
         let xor_lr = &out.seeds.0 ^ &out.seeds.1;
         assert_eq!(xor_lr.key, s.key);
-        assert_eq!(out.bits, (true, true));
+    }
+
+    /// Half-Tree t-bit invariant (Fig. 1 line 5 of the I-DPF → htIDPF PDF):
+    /// since the left child is H_S(parent) and the right child is parent ⊕ H_S(parent),
+    /// the low bit of parent must equal t_L ⊕ t_R, where t_L / t_R are the bool
+    /// control bits returned alongside the seeds.
+    #[test]
+    fn half_tree_control_bit_invariant() {
+        for _ in 0..256 {
+            let s = PrgSeed::random();
+            let out = s.expand();
+            let parent_lsb = (s.key[0] & 0x1) != 0;
+            let t_l = out.bits.0;
+            let t_r = out.bits.1;
+            assert_eq!(
+                parent_lsb, t_l ^ t_r,
+                "t_L ⊕ t_R must equal lsb(parent); got t_L={t_l}, t_R={t_r}, lsb(parent)={parent_lsb}"
+            );
+            assert_eq!(t_l, (out.seeds.0.key[0] & 0x1) != 0,
+                "t_L must equal lsb(left child seed)");
+            assert_eq!(t_r, (out.seeds.1.key[0] & 0x1) != 0,
+                "t_R must equal lsb(right child seed)");
+        }
     }
 }
