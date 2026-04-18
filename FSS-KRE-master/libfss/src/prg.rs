@@ -29,6 +29,47 @@ const AES_KEY_SIZE: usize = 16;
 // AES block size in bytes. Always 16 bytes.
 pub const AES_BLOCK_SIZE: usize = 16;
 
+/// Pre-shared key for Half-Tree IDPF seed expansion: \(H_S(x) = \mathrm{AES}_K(\sigma(x)) \oplus \sigma(x)\).
+/// Domain-separated from other uses; replace with material from a key-exchange phase when integrated.
+const HT_EXPAND_AES_KEY: [u8; AES_KEY_SIZE] = *b"HT-IDPF-HALFTREE";
+
+thread_local! {
+    static HT_EXPAND_AES: Aes128 = {
+        let key = GenericArray::from_slice(&HT_EXPAND_AES_KEY);
+        Aes128::new(key)
+    };
+}
+
+/// σ(x_L ∥ x_R) = (x_L ⊕ x_R) ∥ x_L for 128-bit parent seeds (8 + 8 bytes).
+#[inline]
+pub fn half_tree_sigma(parent: &[u8; AES_KEY_SIZE]) -> [u8; AES_KEY_SIZE] {
+    let mut sigma = [0u8; AES_KEY_SIZE];
+    for i in 0..8 {
+        sigma[i] = parent[i] ^ parent[i + 8];
+    }
+    sigma[8..AES_KEY_SIZE].copy_from_slice(&parent[0..8]);
+    sigma
+}
+
+/// Correlation-robust hash: AES-MMO on σ(parent).
+#[inline]
+pub fn half_tree_hs(aes: &Aes128, parent: &[u8; AES_KEY_SIZE]) -> [u8; AES_KEY_SIZE] {
+    let sigma = half_tree_sigma(parent);
+    let mut block = GenericArray::clone_from_slice(&sigma);
+    aes.encrypt_block(&mut block);
+    let mut out = [0u8; AES_KEY_SIZE];
+    for i in 0..AES_KEY_SIZE {
+        out[i] = block[i] ^ sigma[i];
+    }
+    out
+}
+
+/// Public wrapper: calls H_S using the thread-local AES key (for benchmarking).
+#[inline]
+pub fn half_tree_hs_tls(parent: &[u8; AES_KEY_SIZE]) -> [u8; AES_KEY_SIZE] {
+    HT_EXPAND_AES.with(|aes| half_tree_hs(aes, parent))
+}
+
 // XXX Todo try using 8-way parallelism
 pub struct FixedKeyPrgStream {
     aes: Aes128,
@@ -107,32 +148,21 @@ impl PrgSeed {
     }
 
     pub fn expand_dir(self: &PrgSeed, left: bool, right: bool) -> PrgOutput {
-        FIXED_KEY_STREAM.with(|s_in| {
-            let mut key_short = self.key;
-
-            // Zero out first two bits and use for output
-            key_short[0] &= 0xFC;
-
-            let mut s = s_in.borrow_mut();
-            s.set_key(&key_short);
-
+        HT_EXPAND_AES.with(|aes| {
+            let h = half_tree_hs(aes, &self.key);
             let mut out = PrgOutput {
-                bits: ((key_short[0] & 0x1) == 0, (key_short[0] & 0x2) == 0),
+                // Option A: fixed tuple so correction words carry control-path entropy (matches prior masked-stream behavior).
+                bits: (true, true),
                 seeds: (PrgSeed::zero(), PrgSeed::zero()),
             };
-
             if left {
-                s.fill_bytes(&mut out.seeds.0.key);
-            } else {
-                s.skip_block();
+                out.seeds.0.key.copy_from_slice(&h);
             }
-
             if right {
-                s.fill_bytes(&mut out.seeds.1.key);
-            } else {
-                s.skip_block();
+                for i in 0..AES_KEY_SIZE {
+                    out.seeds.1.key[i] = self.key[i] ^ h[i];
+                }
             }
-
             out
         })
     }
@@ -140,6 +170,7 @@ impl PrgSeed {
     pub fn expand(self: &PrgSeed) -> PrgOutput {
         self.expand_dir(true, true)
     }
+
 
     pub fn long_expand(self: &PrgSeed) -> PrgOutputExt {
         FIXED_KEY_STREAM.with(|s_in| {
@@ -411,5 +442,15 @@ mod tests {
         assert_ne!(out.seeds.0.key, zero.key);
         assert_ne!(out.seeds.1.key, zero.key);
         assert_ne!(out.seeds.0.key, out.seeds.1.key);
+    }
+
+    /// Half-Tree: left = H(s), right = s ⊕ H(s) ⇒ left ⊕ right = s.
+    #[test]
+    fn half_tree_parent_xor_invariant() {
+        let s = PrgSeed::random();
+        let out = s.expand();
+        let xor_lr = &out.seeds.0 ^ &out.seeds.1;
+        assert_eq!(xor_lr.key, s.key);
+        assert_eq!(out.bits, (true, true));
     }
 }

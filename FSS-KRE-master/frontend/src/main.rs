@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use libmpc::mpc_party::MPCParty;
 use libmpc::protocols::bitwise_max::*;
 use libmpc::protocols::bitwise_kre::*;

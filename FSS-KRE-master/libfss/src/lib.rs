@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 pub mod prg;
 pub mod idpf;
 pub mod dpf;
