@@ -26,6 +26,7 @@ impl BitMaxOffline{
 
     pub fn genData(&self, seed: &PrgSeed,input_size: usize, input_bits: usize){
         self.base.genData(&seed,input_size,input_bits, input_bits*4); //for bitwise_max beaver_amount = 2, for bitwise_max_opt beaver_amount = 4
+        let mut t = std::time::Instant::now();
         let mut stream = FixedKeyPrgStream::new();
         stream.set_key(&seed.key);
 
@@ -59,5 +60,6 @@ impl BitMaxOffline{
         write_file("../data/zc_a1.bin", &zero_dpf_r1);
         write_file("../data/zc_k0.bin", &zero_dpf_0);
         write_file("../data/zc_k1.bin", &zero_dpf_1);
+        offline_step("M1+M2 ZC-DPF", &mut t);
     }
 }

@@ -7,7 +7,7 @@ use fss::{Group, RingElm};
 
 use fss::dpf::*;
 
-use super::{write_file, read_file};
+use super::{write_file, read_file, offline_step};
 use fss::{bits_to_u32, bits_to_u32_BE};
 use fss::prg::FixedKeyPrgStream;
 //use std::path::PathBuf;
@@ -31,6 +31,7 @@ impl MaxOffline_IC{
     }
 
     pub fn genData(stream: &mut FixedKeyPrgStream, ic_key_size: usize, cbeavers_num: usize, zc_key_size: usize){
+        let mut t = std::time::Instant::now();
         //let alpha_bits = stream.next_bits(32usize);
         let (p_bound,q_bound) = (RingElm::zero(), RingElm::from((1<<31)-1));
         let mut alpha0 = Vec::<RingElm>::new();
@@ -54,6 +55,7 @@ impl MaxOffline_IC{
         write_file("../data/ic_key1.bin", &ic_key_1);
         write_file("../data/ic_alpha0.bin", &alpha0);
         write_file("../data/ic_alpha1.bin", &alpha1);
+        offline_step("T1+T2 IC keys", &mut t);
 
         let mut beavertuples0: Vec<BeaverTuple> = Vec::new();
         let mut beavertuples1: Vec<BeaverTuple> = Vec::new();
@@ -101,6 +103,7 @@ impl MaxOffline_IC{
         }
         write_file("../data/beaver0.bin", &beavertuples0);
         write_file("../data/beaver1.bin", &beavertuples1);
+        offline_step("T3 Beavers", &mut t);
 
         if zc_key_size > 0 { //
             let mut zero_dpf_0: Vec<DPFKey<RingElm>> = Vec::new();
@@ -131,6 +134,7 @@ impl MaxOffline_IC{
             write_file("../data/zc_alpha1.bin", &zero_dpf_r1);
             write_file("../data/zc_key0.bin", &zero_dpf_0);
             write_file("../data/zc_key1.bin", &zero_dpf_1);
+            offline_step("T4+T5 ZC-DPF (KRE)", &mut t);
         }
     }
 

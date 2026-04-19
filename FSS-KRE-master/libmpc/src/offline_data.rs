@@ -16,6 +16,22 @@ use serde::de::DeserializeOwned;
 
 const NUMERIC_LEN:usize = 32;
 
+/// Per-step offline timing helper. Enable by running with `OFFLINE_TIMING=1`
+/// in the environment; otherwise this is a no-op (the env var is read once per
+/// process via `OnceLock`). The caller owns an `Instant` and passes it in by
+/// mutable reference so each call both prints the elapsed time since the last
+/// checkpoint and resets the clock for the next step.
+pub(crate) fn offline_step(label: &str, t: &mut std::time::Instant) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let on = *ON.get_or_init(|| {
+        std::env::var("OFFLINE_TIMING").ok().as_deref() == Some("1")
+    });
+    if on {
+        println!("  [offline] {:<24} {:>10.3?}", label, t.elapsed());
+    }
+    *t = std::time::Instant::now();
+}
+
 fn write_file<T: serde::ser::Serialize>(path:&str, value:&T){
     let mut file = File::create(path).expect("create failed");
     file.write_all(&bincode::serialize(&value).expect("Serialize value error")).expect("Write key error.");
@@ -73,11 +89,14 @@ impl BasicOffline{
     }
 
     pub fn genData(&self,seed: &PrgSeed,input_size: usize, input_bits: usize, beaver_amount: usize)->Vec<bool>{ //there, I think genData() should be a class method
+        let mut t = std::time::Instant::now();
+
         let mut stream = FixedKeyPrgStream::new();
         stream.set_key(&seed.key);
         //Offline-Step-1. Set IDPF Parameters
         let fix_betas = RingElm::from(1u32).to_vec(input_bits); //generate a series of 1 as beta
-        let r_bits = stream.next_bits(input_bits*input_size);  
+        let r_bits = stream.next_bits(input_bits*input_size);
+        offline_step("B1a α PRG draw", &mut t);
         //Offline-Step-2. Generate Random I-DPFs
         let mut dpf_0: Vec<IDPFKey<RingElm>> = Vec::new();
         let mut dpf_1: Vec<IDPFKey<RingElm>> = Vec::new();
@@ -87,12 +106,16 @@ impl BasicOffline{
             dpf_0.push(k0);
             dpf_1.push(k1);
         }
+        offline_step("B2a IDPF gen (mem)", &mut t);
         write_file("../data/k0.bin", &dpf_0);
         write_file("../data/k1.bin", &dpf_1);
+        offline_step("B2b IDPF write (disk)", &mut t);
+
         let r_bits_0 = stream.next_bits(input_bits*input_size);
         let r_bits_1 = bits_Xor(&r_bits, &r_bits_0);
         write_file("../data/a0.bin", &r_bits_0);
         write_file("../data/a1.bin", &r_bits_1);
+        offline_step("B1b α shares", &mut t);
         //Offline-Step-3. Random daBits for masking
         let q_boolean = stream.next_bits(input_bits);
         // println!("q_boolean is: {} ",vec_bool_to_string(&q_boolean));
@@ -100,6 +123,7 @@ impl BasicOffline{
         let q_boolean_1 = bits_Xor(&q_boolean, &q_boolean_0);
         write_file("../data/qb0.bin", &q_boolean_0);
         write_file("../data/qb1.bin", &q_boolean_1);
+        offline_step("B3 q-bool", &mut t);
         let mut q_numeric = Vec::new();
         let mut q_numeric_0 = Vec::new();
         let mut q_numeric_1 = Vec::new();
@@ -115,12 +139,14 @@ impl BasicOffline{
         }
         write_file("../data/qa0.bin", &q_numeric_0);
         write_file("../data/qa1.bin", &q_numeric_1);
+        offline_step("B4 q-arith (daBits)", &mut t);
 
         let mut beavertuples0: Vec<BeaverTuple> = Vec::new();
         let mut beavertuples1: Vec<BeaverTuple> = Vec::new();
         BeaverTuple::genBeaver(&mut beavertuples0, &mut beavertuples1, &seed, beaver_amount);
         write_file("../data/beaver0.bin", &beavertuples0);
         write_file("../data/beaver1.bin", &beavertuples1);
+        offline_step("B5 Beavers", &mut t);
 
         q_boolean
     }

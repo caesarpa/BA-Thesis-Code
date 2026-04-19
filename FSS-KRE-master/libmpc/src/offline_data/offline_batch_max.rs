@@ -68,6 +68,7 @@ impl BatchMaxOffline {
         let q_boolean = self
             .base
             .genData(&seed, input_size, input_bits, input_bits * 2);
+        let mut t = std::time::Instant::now();
         let mut stream = FixedKeyPrgStream::new();
         stream.set_key(&seed.key);
 
@@ -107,6 +108,7 @@ impl BatchMaxOffline {
         write_file("../data/zc_a1.bin", &zero_dpf_r1);
         write_file("../data/zc_k0.bin", &zero_dpf_0);
         write_file("../data/zc_k1.bin", &zero_dpf_1);
+        offline_step("BM1+BM2 ZC-DPF", &mut t);
 
         //Offline-Step-3.1 Q terms value generation
 
@@ -126,6 +128,7 @@ impl BatchMaxOffline {
 
         write_file("../data/qmatrix0.bin", &qmatrix_share0);
         write_file("../data/qmatrix1.bin", &qmatrix_share1);
+        offline_step("BM3 q-matrices", &mut t);
 
         let mut mbb0 = Vec::<MBeaverBlock>::new();
         let mut mbb1 = Vec::<MBeaverBlock>::new();
@@ -137,6 +140,7 @@ impl BatchMaxOffline {
         }
         write_file("../data/mbeaver0.bin", &mbb0);
         write_file("../data/mbeaver1.bin", &mbb1);
+        offline_step("BM4 m-beavers", &mut t);
 
         let mut binary_beavers_1 = Vec::<MBeaver>::new();
         let mut binary_beavers_2 = Vec::<MBeaver>::new();
@@ -149,13 +153,14 @@ impl BatchMaxOffline {
 
         write_file("../data/binary_beavers0.bin", &binary_beavers_1);
         write_file("../data/binary_beavers1.bin", &binary_beavers_2);
+        offline_step("BM5 binary-beavers", &mut t);
     }
 }
 //assume batch_size <= 8
 
 #[cfg(test)]
 mod tests {
-    use crate::offline_data::BitMaxOffline;
+    use crate::offline_data::offline_bitwise_max::BitMaxOffline;
     use fss::prg::PrgSeed;
     use fss::qmatrix::*;
 

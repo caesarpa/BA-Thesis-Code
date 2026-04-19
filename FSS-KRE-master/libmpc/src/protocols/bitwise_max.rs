@@ -6,7 +6,7 @@ use fss::BinElm;
 use fss::dpf::DPFKey;
 use fss::beavertuple::BeaverTuple;
 use crate::offline_data::offline_bitwise_max::*;
-use super::verify_vidpf_tags;
+use super::{verify_vidpf_tags, online_step, online_report};
 use rayon::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -185,6 +185,8 @@ pub async fn bitwise_max(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>)->V
 
 
 pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>) -> Vec<bool> {
+    let mut __online_t = std::time::Instant::now();
+
     let m: usize = p.m;
     let n = p.n;
     let is_server = p.netlayer.is_server;
@@ -239,8 +241,10 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
             mask_bits.push(t_share);
         }
     }
+    online_step("O1 init + mask prep", &mut __online_t);
 
-    let t = p.netlayer.exchange_bool_vec(mask_bits.clone()).await; 
+    let t = p.netlayer.exchange_bool_vec(mask_bits.clone()).await;
+    online_step("O2 mask exchange", &mut __online_t);
     /****************************************Computation Framework 4-7:   End*******************************************************************/
     
 
@@ -336,13 +340,18 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         //End: evaluate the non-zero-check function
         /***************************************ZeroCheck and BeaverMultiply:   End**************************************************/
     };
+    online_step("O3 round 0", &mut __online_t);
     /********************************************BitWise Round0:   End**************************************************************************/ 
     
 
     /********************************************BitWise Middle Rounds: Start*******************************************************************/ 
     sigma = true;
-    
+
+    let mut __middle_idpf  = std::time::Duration::ZERO;
+    let mut __middle_other = std::time::Duration::ZERO;
+
     for i in 1..(n-1){
+        let __round_t0 = std::time::Instant::now();
         let sigma_index = !sigma as usize; 
         let mut msg_ring_share = vec![RingElm::from(0); 11]; // exchange 11 ring elements
         /**************************************Step2-1: Reaval, ZeroCheck and BeaverMultiply: Start******************************/
@@ -438,6 +447,8 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         mu_share[0][1] = RingElm::from(0);
         mu_share[1][0] = RingElm::from(0);
         mu_share[1][1] = RingElm::from(0);
+        let __idpf_t0 = std::time::Instant::now();
+        __middle_other += __idpf_t0 - __round_t0;
         for j in 0..m{
             let new_bit = t[j*n + i]; 
             let next_bit = t[j*n + i + 1];
@@ -466,8 +477,13 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
             state_idpf[4*j+3] = state_new11.clone();    
             mu_share[1][1].add(&beta01);
         }
+        __middle_idpf += __idpf_t0.elapsed();
         /*********************************************Step2-2: IDPF Evaluation:   End*************************************************/
     }
+    online_report("O4a middle: IDPF eval", __middle_idpf);
+    online_report("O4b middle: algebra+net", __middle_other);
+    // Reset checkpoint so the next online_step measures only the last round + verify.
+    __online_t = std::time::Instant::now();
     /********************************************BitWise Middle Rounds:   End*********************************************************/ 
 
      /********************************************BitWise The Last Rounds:   End******************************************************/
@@ -511,6 +527,7 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         }      
 
      }; // The last round
+     online_step("O5 last round", &mut __online_t);
 
       /********************************************BitWise The Last Rounds:   End*****************************************************/ 
 
@@ -518,6 +535,7 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         verify_vidpf_tags(&mut p.netlayer, &old_state).await,
         "VIDPF aggregate tag verification failed in bitwise_max_opt"
     );
+    online_step("O6 VIDPF verify", &mut __online_t);
     p.netlayer.print_benchmarking().await;
     max_bits
 }

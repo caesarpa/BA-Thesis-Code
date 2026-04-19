@@ -72,6 +72,7 @@ impl BatchKreOffline {
         let q_boolean = self
             .base
             .genData(&seed, input_size, input_bits, input_bits * 2);
+        let mut t = std::time::Instant::now();
         let mut stream = FixedKeyPrgStream::new();
         stream.set_key(&seed.key);
 
@@ -108,6 +109,7 @@ impl BatchKreOffline {
         write_file("../data/let_a1.bin", &let_icc_r1);
         write_file("../data/let_k0.bin", &let_icc_0);
         write_file("../data/let_k1.bin", &let_icc_1);
+        offline_step("BK1+BK2 IC keys", &mut t);
 
         //Offline-Step-3.1 Q terms value generation
 
@@ -128,6 +130,7 @@ impl BatchKreOffline {
 
         write_file("../data/qelmmatrix0.bin", &qelmmatrix_share0);
         write_file("../data/qelmmatrix1.bin", &qelmmatrix_share1);
+        offline_step("BK3 q-elm-matrices", &mut t);
 
         let mut qbeavers_1 = Vec::new();
         let mut qbeavers_2 = Vec::new();
@@ -145,6 +148,7 @@ impl BatchKreOffline {
 
         write_file("../data/qbeavers0.bin", &qbeavers_1);
         write_file("../data/qbeavers1.bin", &qbeavers_2);
+        offline_step("BK4 q-beavers", &mut t);
 
         let mut cbeavers_1 = Vec::new();
         let mut cbeavers_2 = Vec::new();
@@ -162,6 +166,7 @@ impl BatchKreOffline {
 
         write_file("../data/cbeavers0.bin", &cbeavers_1);
         write_file("../data/cbeavers1.bin", &cbeavers_2);
+        offline_step("BK5 c-beavers", &mut t);
 
         let mut kbeavers_1 = Vec::new();
         let mut kbeavers_2 = Vec::new();
@@ -178,5 +183,6 @@ impl BatchKreOffline {
         }
         write_file("../data/kbeavers0.bin", &kbeavers_1);
         write_file("../data/kbeavers1.bin", &kbeavers_2);
+        offline_step("BK6 k-beavers", &mut t);
     }
 }

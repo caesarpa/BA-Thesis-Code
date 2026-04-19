@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import queue
 import re
 import shutil
@@ -79,6 +80,40 @@ def parse_rust_duration_ns(text: str) -> Optional[float]:
 
 
 # --------------------------------------------------------------------------- #
+# Per-stage timing ordering and CSV column keys
+# --------------------------------------------------------------------------- #
+#
+# These mirror the `offline_step` / `online_step` calls in
+# `libmpc/src/offline_data*.rs` and `libmpc/src/protocols/bitwise_max.rs`.
+# Emitted only when the child process has `OFFLINE_TIMING=1` /
+# `ONLINE_TIMING=1` in its environment (the runner sets both by default).
+
+OFFLINE_STEPS: list[tuple[str, str]] = [
+    ("B1a α PRG draw",        "offline_b1a_alpha_prg_draw_ns"),
+    ("B2a IDPF gen (mem)",    "offline_b2a_idpf_gen_mem_ns"),
+    ("B2b IDPF write (disk)", "offline_b2b_idpf_write_disk_ns"),
+    ("B1b α shares",          "offline_b1b_alpha_shares_ns"),
+    ("B3 q-bool",             "offline_b3_q_bool_ns"),
+    ("B4 q-arith (daBits)",   "offline_b4_q_arith_ns"),
+    ("B5 Beavers",            "offline_b5_beavers_ns"),
+    ("M1+M2 ZC-DPF",          "offline_m1m2_zc_dpf_ns"),
+]
+
+ONLINE_STEPS: list[tuple[str, str]] = [
+    ("O1 init + mask prep",     "online_o1_init_mask_prep_ns"),
+    ("O2 mask exchange",        "online_o2_mask_exchange_ns"),
+    ("O3 round 0",              "online_o3_round_0_ns"),
+    ("O4a middle: IDPF eval",   "online_o4a_middle_idpf_ns"),
+    ("O4b middle: algebra+net", "online_o4b_middle_algebra_net_ns"),
+    ("O5 last round",           "online_o5_last_round_ns"),
+    ("O6 VIDPF verify",         "online_o6_vidpf_verify_ns"),
+]
+
+_STEP_LABEL_TO_KEY: dict[str, str] = {label: key for label, key in
+                                      OFFLINE_STEPS + ONLINE_STEPS}
+
+
+# --------------------------------------------------------------------------- #
 # Per-party output parsing
 # --------------------------------------------------------------------------- #
 
@@ -89,6 +124,7 @@ class PartyResult:
     online_ns: Optional[float] = None
     online_rounds: Optional[int] = None
     comm_bytes: Optional[int] = None
+    steps_ns: dict[str, float] = field(default_factory=dict)  # csv_key -> ns
     raw_lines: list[str] = field(default_factory=list)
 
 
@@ -96,6 +132,17 @@ _RE_OFFLINE = re.compile(r"Offline key generation time:\s*(.+)$")
 _RE_ROUNDS = re.compile(r"Online rounds:\s*(\d+)")
 _RE_COMM = re.compile(r"Communication volume:\s*(\d+)\s*bytes")
 _RE_COMP = re.compile(r"Computation time:\s*(.+?)\s*$")
+
+# Matches lines produced by `offline_step` / `online_step` / `online_report`:
+#   "  [offline] B1a α PRG draw             11.135ms"
+#   "  [online]  O4a middle: IDPF eval      323.456ms"
+# The label can contain spaces/punctuation; we non-greedily capture up to the
+# last whitespace-separated duration token on the line.
+_RE_STEP = re.compile(
+    r"^\s*\[(?P<kind>offline|online)\]\s+"
+    r"(?P<label>.+?)\s+"
+    r"(?P<dur>\d+(?:\.\d+)?\s*(?:ns|us|µs|ms|s))\s*$"
+)
 
 
 def update_party_from_line(result: PartyResult, line: str) -> None:
@@ -116,6 +163,15 @@ def update_party_from_line(result: PartyResult, line: str) -> None:
         dur = parse_rust_duration_ns(m.group(1))
         if dur is not None:
             result.online_ns = dur
+
+    if (m := _RE_STEP.match(line)):
+        label = m.group("label").strip()
+        key = _STEP_LABEL_TO_KEY.get(label)
+        if key is not None:
+            dur = parse_rust_duration_ns(m.group("dur"))
+            if dur is not None:
+                # First occurrence wins (defensive; steps should be unique per run).
+                result.steps_ns.setdefault(key, dur)
 
 
 # --------------------------------------------------------------------------- #
@@ -144,20 +200,29 @@ def _pump_stdout(proc: subprocess.Popen, result: PartyResult,
 
 
 def run_one(run_idx: int, binary: Path, echo: bool,
-            startup_timeout_s: float) -> tuple[PartyResult, PartyResult]:
+            startup_timeout_s: float,
+            child_env: Optional[dict[str, str]] = None
+            ) -> tuple[PartyResult, PartyResult]:
     """Launch one (server, client) pair and return both parsed results."""
     server_res = PartyResult(party="server")
     client_res = PartyResult(party="client")
     ready_q: "queue.Queue[str]" = queue.Queue()
 
     # Start server first.
+    # NOTE: `encoding="utf-8"` is required on Windows — the frontend prints
+    # UTF-8 bytes (α in "B1a α PRG draw", µ in "µs" durations). With the
+    # default locale-based decoder (CP1252 on Windows) those bytes decode to
+    # mojibake and silently break the per-stage regex parsing.
     server = subprocess.Popen(
         [str(binary), "0"],
         cwd=str(FRONTEND_DIR),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
+        env=child_env,
     )
     server_thread = threading.Thread(
         target=_pump_stdout,
@@ -194,7 +259,10 @@ def run_one(run_idx: int, binary: Path, echo: bool,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
+        env=child_env,
     )
     client_thread = threading.Thread(
         target=_pump_stdout,
@@ -234,6 +302,16 @@ def build_release() -> None:
 
 
 def main() -> None:
+    # Labels like "B1a α PRG draw" and µs durations are UTF-8; on Windows
+    # Python's stdout defaults to the console codepage (often CP1252) which
+    # would blow up when we print the summary. Make our own stdout/stderr
+    # tolerant of non-ASCII.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--runs", type=int, default=100,
                     help="Number of (server, client) pairs to launch. Default: 100")
@@ -253,6 +331,12 @@ def main() -> None:
     ap.add_argument("--inter-run-sleep", type=float, default=0.3,
                     help="Seconds to sleep between runs so the OS can free the "
                          "TCP port. Default: 0.3")
+    ap.add_argument("--no-offline-timing", action="store_true",
+                    help="Do NOT set OFFLINE_TIMING=1 in the child env "
+                         "(suppresses per-stage offline prints and CSV cols).")
+    ap.add_argument("--no-online-timing", action="store_true",
+                    help="Do NOT set ONLINE_TIMING=1 in the child env "
+                         "(suppresses per-stage online prints and CSV cols).")
     args = ap.parse_args()
 
     if args.build:
@@ -268,15 +352,34 @@ def main() -> None:
     # Ensure the `test/` directory exists (main.rs writes ../test/x*.bin).
     (PROJECT_ROOT / "test").mkdir(exist_ok=True)
 
+    # Build the env the children will inherit. We always start from the runner's
+    # current environment, then opt into the per-stage timing prints unless the
+    # user explicitly disables them.
+    child_env: dict[str, str] = os.environ.copy()
+    if not args.no_offline_timing:
+        child_env["OFFLINE_TIMING"] = "1"
+    else:
+        child_env.pop("OFFLINE_TIMING", None)
+    if not args.no_online_timing:
+        child_env["ONLINE_TIMING"] = "1"
+    else:
+        child_env.pop("ONLINE_TIMING", None)
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     print(f"[runner] Writing results to {args.out}")
+    print(f"[runner] Child env: OFFLINE_TIMING={child_env.get('OFFLINE_TIMING', '<unset>')}, "
+          f"ONLINE_TIMING={child_env.get('ONLINE_TIMING', '<unset>')}")
 
+    # Canonical CSV column order: base metrics first, then per-step ns columns
+    # in the same order as the offline/online pipelines.
+    step_cols = [key for _, key in OFFLINE_STEPS] + [key for _, key in ONLINE_STEPS]
     headers = [
         "run_idx", "party", "warmup",
         "offline_ns", "offline_ms",
         "online_ns", "online_ms",
         "online_rounds", "comm_bytes",
         "wall_ns",
+        *step_cols,
     ]
 
     rows: list[dict] = []
@@ -296,6 +399,7 @@ def main() -> None:
                     binary=args.binary,
                     echo=args.echo,
                     startup_timeout_s=args.startup_timeout,
+                    child_env=child_env,
                 )
             except Exception as e:
                 print(f"[runner] run {run_idx} failed: {e}", file=sys.stderr)
@@ -317,6 +421,9 @@ def main() -> None:
                     "comm_bytes": res.comm_bytes if res.comm_bytes is not None else "",
                     "wall_ns": wall_ns,
                 }
+                for col in step_cols:
+                    ns = res.steps_ns.get(col)
+                    row[col] = f"{ns:.0f}" if ns is not None else ""
                 writer.writerow(row)
                 rows.append(row)
             f.flush()
@@ -363,10 +470,21 @@ def print_summary(rows: list[dict]) -> None:
 
     print("\n[runner] ===== Summary (warmup excluded) =====")
     for party in ("server", "client"):
+        # Totals.
         for key in ("offline_ns", "online_ns"):
             vals = [float(r[key]) for r in measured
                     if r["party"] == party and r[key] != ""]
-            print(f"  {party:<6} {key[:-3]:<8}  {stats(vals)}")
+            print(f"  {party:<6} {key[:-3]:<28}  {stats(vals)}")
+
+        # Per-stage offline then online, in pipeline order. Only emit rows
+        # for stages that actually produced at least one measurement, so
+        # disabling a timing scope doesn't clutter the summary.
+        for label, csv_key in OFFLINE_STEPS + ONLINE_STEPS:
+            vals = [float(r[csv_key]) for r in measured
+                    if r["party"] == party and r.get(csv_key, "") != ""]
+            if not vals:
+                continue
+            print(f"  {party:<6} {label:<28}  {stats(vals)}")
 
 
 if __name__ == "__main__":

@@ -3,6 +3,30 @@ use fss::idpf::*;
 use fss::RingElm;
 use crate::mpc_platform::NetInterface;
 
+/// Whether online per-stage timing is enabled (env var `ONLINE_TIMING=1`).
+/// Read once per process via `OnceLock`.
+fn online_timing_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("ONLINE_TIMING").ok().as_deref() == Some("1"))
+}
+
+/// Per-stage online timing helper. Prints elapsed since the previous
+/// checkpoint and resets the clock. No-op unless `ONLINE_TIMING=1`.
+pub(crate) fn online_step(label: &str, t: &mut std::time::Instant) {
+    if online_timing_enabled() {
+        println!("  [online]  {:<28} {:>10.3?}", label, t.elapsed());
+    }
+    *t = std::time::Instant::now();
+}
+
+/// Report an accumulated `Duration` (for sub-timings summed across many
+/// loop iterations). No-op unless `ONLINE_TIMING=1`.
+pub(crate) fn online_report(label: &str, d: std::time::Duration) {
+    if online_timing_enabled() {
+        println!("  [online]  {:<28} {:>10.3?}", label, d);
+    }
+}
+
 pub mod bitwise_max;
 pub mod bitwise_kre;
 pub mod batch_max_proto;

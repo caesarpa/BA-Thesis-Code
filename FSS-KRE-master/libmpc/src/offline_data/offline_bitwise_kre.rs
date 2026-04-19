@@ -21,6 +21,7 @@ impl BitKreOffline{
 
     pub fn genData(&self, seed: &PrgSeed,input_size: usize, input_bits: usize){
         self.base.genData(&seed,input_size,input_bits, input_bits*4);
+        let mut t = std::time::Instant::now();
         let mut stream = FixedKeyPrgStream::new();
         stream.set_key(&seed.key);
 
@@ -34,5 +35,6 @@ impl BitKreOffline{
         }
         write_file("../data/bitwise_kre_k0.bin", &online_k0);
         write_file("../data/bitwise_kre_k1.bin", &online_k1);
+        offline_step("K1 CondEval keys", &mut t);
     }
 }
