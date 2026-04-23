@@ -249,6 +249,7 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
     
 
     /********************************************BitWise Round0: Start**************************************************************************/ 
+    reset_eval_timing_breakdown();
     let _ = {
         /********************************************IDPF_Eval: Start****************************************************************/
         //let mut v_share = [m_share.clone(), RingElm::from(0)];
@@ -340,6 +341,10 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         //End: evaluate the non-zero-check function
         /***************************************ZeroCheck and BeaverMultiply:   End**************************************************/
     };
+    let round0_idpf = take_eval_timing_breakdown();
+    online_report("O3a round0: expand_dir", round0_idpf.expand_dir);
+    online_report("O3b round0: convert+word", round0_idpf.convert_and_word);
+    online_report("O3c round0: tag update", round0_idpf.tag_update);
     online_step("O3 round 0", &mut __online_t);
     /********************************************BitWise Round0:   End**************************************************************************/ 
     
@@ -347,6 +352,7 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
     /********************************************BitWise Middle Rounds: Start*******************************************************************/ 
     sigma = true;
 
+    reset_eval_timing_breakdown();
     let mut __middle_idpf  = std::time::Duration::ZERO;
     let mut __middle_other = std::time::Duration::ZERO;
 
@@ -480,7 +486,11 @@ pub async fn bitwise_max_opt(p: &mut MPCParty<BitMaxOffline>, x_bits: &Vec<bool>
         __middle_idpf += __idpf_t0.elapsed();
         /*********************************************Step2-2: IDPF Evaluation:   End*************************************************/
     }
+    let middle_idpf_breakdown = take_eval_timing_breakdown();
     online_report("O4a middle: IDPF eval", __middle_idpf);
+    online_report("O4a1 middle: expand_dir", middle_idpf_breakdown.expand_dir);
+    online_report("O4a2 middle: convert+word", middle_idpf_breakdown.convert_and_word);
+    online_report("O4a3 middle: tag update", middle_idpf_breakdown.tag_update);
     online_report("O4b middle: algebra+net", __middle_other);
     // Reset checkpoint so the next online_step measures only the last round + verify.
     __online_t = std::time::Instant::now();

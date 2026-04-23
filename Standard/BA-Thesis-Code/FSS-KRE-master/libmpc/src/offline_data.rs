@@ -21,15 +21,22 @@ const NUMERIC_LEN:usize = 32;
 /// process via `OnceLock`). The caller owns an `Instant` and passes it in by
 /// mutable reference so each call both prints the elapsed time since the last
 /// checkpoint and resets the clock for the next step.
-pub(crate) fn offline_step(label: &str, t: &mut std::time::Instant) {
+fn offline_timing_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let on = *ON.get_or_init(|| {
-        std::env::var("OFFLINE_TIMING").ok().as_deref() == Some("1")
-    });
-    if on {
+    *ON.get_or_init(|| std::env::var("OFFLINE_TIMING").ok().as_deref() == Some("1"))
+}
+
+pub(crate) fn offline_step(label: &str, t: &mut std::time::Instant) {
+    if offline_timing_enabled() {
         println!("  [offline] {:<24} {:>10.3?}", label, t.elapsed());
     }
     *t = std::time::Instant::now();
+}
+
+pub(crate) fn offline_report(label: &str, d: std::time::Duration) {
+    if offline_timing_enabled() {
+        println!("  [offline] {:<24} {:>10.3?}", label, d);
+    }
 }
 
 fn write_file<T: serde::ser::Serialize>(path:&str, value:&T){
@@ -98,6 +105,7 @@ impl BasicOffline{
         let r_bits = stream.next_bits(input_bits*input_size);
         offline_step("B1a α PRG draw", &mut t);
         //Offline-Step-2. Generate Random I-DPFs
+        reset_keygen_timing_breakdown();
         let mut dpf_0: Vec<IDPFKey<RingElm>> = Vec::new();
         let mut dpf_1: Vec<IDPFKey<RingElm>> = Vec::new();
         for i in 0..input_size{
@@ -107,6 +115,10 @@ impl BasicOffline{
             dpf_1.push(k1);
         }
         offline_step("B2a IDPF gen (mem)", &mut t);
+        let idpf_keygen = take_keygen_timing_breakdown();
+        offline_report("B2a1 IDPF expand", idpf_keygen.expand_children);
+        offline_report("B2a2 IDPF convert+CW", idpf_keygen.convert_and_cw);
+        offline_report("B2a3 IDPF tag hash", idpf_keygen.tag_hash);
         write_file("../data/k0.bin", &dpf_0);
         write_file("../data/k1.bin", &dpf_1);
         offline_step("B2b IDPF write (disk)", &mut t);

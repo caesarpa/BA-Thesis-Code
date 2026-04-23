@@ -22,6 +22,88 @@ thread_local! {
     };
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct KeygenTimingBreakdown {
+    pub expand_children: std::time::Duration,
+    pub convert_and_cw: std::time::Duration,
+    pub tag_hash: std::time::Duration,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EvalTimingBreakdown {
+    pub expand_dir: std::time::Duration,
+    pub convert_and_word: std::time::Duration,
+    pub tag_update: std::time::Duration,
+}
+
+fn keygen_timing_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("OFFLINE_TIMING").ok().as_deref() == Some("1"))
+}
+
+fn eval_timing_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("ONLINE_TIMING").ok().as_deref() == Some("1"))
+}
+
+fn keygen_timing_accum() -> &'static std::sync::Mutex<KeygenTimingBreakdown> {
+    static ACC: std::sync::OnceLock<std::sync::Mutex<KeygenTimingBreakdown>> =
+        std::sync::OnceLock::new();
+    ACC.get_or_init(|| std::sync::Mutex::new(KeygenTimingBreakdown::default()))
+}
+
+fn eval_timing_accum() -> &'static std::sync::Mutex<EvalTimingBreakdown> {
+    static ACC: std::sync::OnceLock<std::sync::Mutex<EvalTimingBreakdown>> =
+        std::sync::OnceLock::new();
+    ACC.get_or_init(|| std::sync::Mutex::new(EvalTimingBreakdown::default()))
+}
+
+fn add_keygen_timing(local: KeygenTimingBreakdown) {
+    if keygen_timing_enabled() {
+        let mut acc = keygen_timing_accum().lock().unwrap();
+        acc.expand_children += local.expand_children;
+        acc.convert_and_cw += local.convert_and_cw;
+        acc.tag_hash += local.tag_hash;
+    }
+}
+
+fn add_eval_timing(local: EvalTimingBreakdown) {
+    if eval_timing_enabled() {
+        let mut acc = eval_timing_accum().lock().unwrap();
+        acc.expand_dir += local.expand_dir;
+        acc.convert_and_word += local.convert_and_word;
+        acc.tag_update += local.tag_update;
+    }
+}
+
+pub fn reset_keygen_timing_breakdown() {
+    if keygen_timing_enabled() {
+        *keygen_timing_accum().lock().unwrap() = KeygenTimingBreakdown::default();
+    }
+}
+
+pub fn take_keygen_timing_breakdown() -> KeygenTimingBreakdown {
+    if keygen_timing_enabled() {
+        std::mem::take(&mut *keygen_timing_accum().lock().unwrap())
+    } else {
+        KeygenTimingBreakdown::default()
+    }
+}
+
+pub fn reset_eval_timing_breakdown() {
+    if eval_timing_enabled() {
+        *eval_timing_accum().lock().unwrap() = EvalTimingBreakdown::default();
+    }
+}
+
+pub fn take_eval_timing_breakdown() -> EvalTimingBreakdown {
+    if eval_timing_enabled() {
+        std::mem::take(&mut *eval_timing_accum().lock().unwrap())
+    } else {
+        EvalTimingBreakdown::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     bytes: [u8; TAG_SIZE],
@@ -130,7 +212,16 @@ fn gen_cor_word<W>(
 ) -> (CorWord<W>, Tag)
     where W: prg::FromRng + Clone + Group + std::fmt::Debug
 {
-    let data = seeds.map(|s| s.expand());
+    let timing_on = keygen_timing_enabled();
+    let mut timing = KeygenTimingBreakdown::default();
+    let data = if timing_on {
+        let t0 = std::time::Instant::now();
+        let data = seeds.map(|s| s.expand());
+        timing.expand_children += t0.elapsed();
+        data
+    } else {
+        seeds.map(|s| s.expand())
+    };
 
     // If alpha[i] = 0:
     //   Keep = L,  Lose = R
@@ -148,34 +239,76 @@ fn gen_cor_word<W>(
         ),
         word: W::zero(),
     };
-    for (b, seed) in seeds.iter_mut() {
-        *seed = data.get(b).seeds.get(keep).clone();
+    let converted = if timing_on {
+        let t0 = std::time::Instant::now();
+        for (b, seed) in seeds.iter_mut() {
+            *seed = data.get(b).seeds.get(keep).clone();
 
-        if *bits.get(b) {
-            *seed = &*seed ^ &cw.seed;
+            if *bits.get(b) {
+                *seed = &*seed ^ &cw.seed;
+            }
+
+            let mut newbit = *data.get(b).bits.get(keep);
+            if *bits.get(b) {
+                newbit ^= cw.bits.get(keep);
+            }
+
+            *bits.get_mut(b) = newbit;
         }
+        let converted = seeds.map(|s| s.convert());
+        cw.word = value;
 
-        let mut newbit = *data.get(b).bits.get(keep);
-        if *bits.get(b) {
-            newbit ^= cw.bits.get(keep);
+        cw.word.sub(&converted.0.word);
+        cw.word.add(&converted.1.word);
+
+        if bits.1 {
+            cw.word.negate();
         }
+        timing.convert_and_cw += t0.elapsed();
+        converted
+    } else {
+        for (b, seed) in seeds.iter_mut() {
+            *seed = data.get(b).seeds.get(keep).clone();
 
-        *bits.get_mut(b) = newbit;
-    }
-    let converted = seeds.map(|s| s.convert());
-    cw.word = value;
+            if *bits.get(b) {
+                *seed = &*seed ^ &cw.seed;
+            }
 
-    cw.word.sub(&converted.0.word);
-    cw.word.add(&converted.1.word);
+            let mut newbit = *data.get(b).bits.get(keep);
+            if *bits.get(b) {
+                newbit ^= cw.bits.get(keep);
+            }
 
-    if bits.1 {
-        cw.word.negate();
-    }
+            *bits.get_mut(b) = newbit;
+        }
+        let converted = seeds.map(|s| s.convert());
+        cw.word = value;
 
-    let cor_tag = h1(level, path_bits, &converted.0.seed) ^ h1(level, path_bits, &converted.1.seed);
+        cw.word.sub(&converted.0.word);
+        cw.word.add(&converted.1.word);
+
+        if bits.1 {
+            cw.word.negate();
+        }
+        converted
+    };
+
+    let cor_tag = if timing_on {
+        let t0 = std::time::Instant::now();
+        let cor_tag =
+            h1(level, path_bits, &converted.0.seed) ^ h1(level, path_bits, &converted.1.seed);
+        timing.tag_hash += t0.elapsed();
+        cor_tag
+    } else {
+        h1(level, path_bits, &converted.0.seed) ^ h1(level, path_bits, &converted.1.seed)
+    };
 
     seeds.0 = converted.0.seed;
     seeds.1 = converted.1.seed;
+
+    if timing_on {
+        add_keygen_timing(timing);
+    }
 
     (cw, cor_tag)
 }
@@ -219,35 +352,82 @@ impl<T> IDPFKey<T> where T: prg::FromRng + Clone + Group + std::fmt::Debug
     }
 
     pub fn eval_bit(&self, state: &EvalState, dir: bool) -> (EvalState, T) {
-        let tau = state.seed.expand_dir(!dir, dir);
+        let timing_on = eval_timing_enabled();
+        let mut timing = EvalTimingBreakdown::default();
+        let tau = if timing_on {
+            let t0 = std::time::Instant::now();
+            let tau = state.seed.expand_dir(!dir, dir);
+            timing.expand_dir += t0.elapsed();
+            tau
+        } else {
+            state.seed.expand_dir(!dir, dir)
+        };
         let mut seed = tau.seeds.get(dir).clone();
         let mut new_bit = *tau.bits.get(dir);
 
-        if state.bit {
-            seed = &seed ^ &self.cor_words[state.level].seed;
-            new_bit ^= self.cor_words[state.level].bits.get(dir);
-        }
+        let mut word = if timing_on {
+            let t0 = std::time::Instant::now();
+            if state.bit {
+                seed = &seed ^ &self.cor_words[state.level].seed;
+                new_bit ^= self.cor_words[state.level].bits.get(dir);
+            }
 
-        let converted = seed.convert::<T>();
-        seed = converted.seed;
+            let converted = seed.convert::<T>();
+            seed = converted.seed;
 
-        let mut word = converted.word;
-        if new_bit {
-            word.add(&self.cor_words[state.level].word);
-        }
+            let mut word = converted.word;
+            if new_bit {
+                word.add(&self.cor_words[state.level].word);
+            }
 
-        if self.key_idx {
-            word.negate()
-        }
+            if self.key_idx {
+                word.negate()
+            }
+            timing.convert_and_word += t0.elapsed();
+            word
+        } else {
+            if state.bit {
+                seed = &seed ^ &self.cor_words[state.level].seed;
+                new_bit ^= self.cor_words[state.level].bits.get(dir);
+            }
+
+            let converted = seed.convert::<T>();
+            seed = converted.seed;
+
+            let mut word = converted.word;
+            if new_bit {
+                word.add(&self.cor_words[state.level].word);
+            }
+
+            if self.key_idx {
+                word.negate()
+            }
+            word
+        };
 
         let next_level = state.level + 1;
         let next_path_bits = state.path_bits | ((dir as u32) << state.level);
 
-        let mut tilde_pi = h1(next_level, next_path_bits, &seed);
-        if new_bit {
-            tilde_pi ^= self.cor_tags[state.level];
+        let pi_next = if timing_on {
+            let t0 = std::time::Instant::now();
+            let mut tilde_pi = h1(next_level, next_path_bits, &seed);
+            if new_bit {
+                tilde_pi ^= self.cor_tags[state.level];
+            }
+            let pi_next = state.pi ^ h2(state.pi ^ tilde_pi);
+            timing.tag_update += t0.elapsed();
+            pi_next
+        } else {
+            let mut tilde_pi = h1(next_level, next_path_bits, &seed);
+            if new_bit {
+                tilde_pi ^= self.cor_tags[state.level];
+            }
+            state.pi ^ h2(state.pi ^ tilde_pi)
+        };
+
+        if timing_on {
+            add_eval_timing(timing);
         }
-        let pi_next = state.pi ^ h2(state.pi ^ tilde_pi);
 
         (
             EvalState {

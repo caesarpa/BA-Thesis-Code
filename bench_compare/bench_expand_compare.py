@@ -1,35 +1,32 @@
 """
-Run the libfss seed-expansion microbenchmarks for Standard (CTR PRG) and HT
-(half-tree expand), then print a side-by-side comparison of matching rows.
+Paired, alternating benchmark runner for the libfss seed-expansion examples.
 
-The Rust programs print fixed-width tables; this script parses the numeric
-columns from the end of each data line (same layout in both examples).
-
-Usage (from the parent of bench_compare/, or any cwd):
-
-    python bench_compare\\bench_expand_compare.py
-    python bench_compare\\bench_expand_compare.py --build
-    python bench_compare\\bench_expand_compare.py --echo --list-rows
-
-Requirements: Python >= 3.9, `cargo` on PATH.
+Unlike the old single-shot comparison, this runner executes the Standard and HT
+expand examples repeatedly, alternates them round by round, writes normalized
+rows to CSV, and prints aggregated mean / stddev summaries.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import math
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 THIS_FILE = Path(__file__).resolve()
 CODE_ROOT = THIS_FILE.parent.parent
 
-# (display name, Standard bench_expand label, HT bench_ht_expand label).
-# Labels must match the string literals passed to print_row / print_row_delta.
+PROJECTS: list[tuple[str, str, str]] = [
+    ("HT", "HT", "bench_ht_expand"),
+    ("STD", "Standard", "bench_expand"),
+]
+
+# (display name, Standard row label, HT row label)
 COMPARISON_ROWS: list[tuple[str, str, str]] = [
     ("Full expand (no TLS)", "Full expansion (stack-local)", "Full expand: sigma + AES + MMO + children"),
     ("Full expand (TLS)", "Full expansion (TLS, s.expand())", "Full expand (TLS): H_S_tls + children"),
@@ -39,7 +36,6 @@ COMPARISON_ROWS: list[tuple[str, str, str]] = [
     ("Isolated: left child copy", "I6: copy_from_slice (one 16-byte block)", "I4: left child (copy_from_slice)"),
 ]
 
-# Trailing data columns: total ms (3 decimals), per-call ns (1 decimal), optional delta (+/- 1 decimal).
 _ROW_NUMS_RE = re.compile(
     r"\s+(?P<total>\d+\.\d{3})\s+(?P<pcall>\d+\.\d)(?:\s+(?P<delta>[+-]\d+\.\d))?\s*$"
 )
@@ -57,7 +53,6 @@ def _libfss_manifest(project_folder: str) -> Path:
 
 
 def _parse_table(text: str) -> dict[str, dict[str, float]]:
-    """Map row label -> {total_ms, per_ns, delta_ns?}."""
     out: dict[str, dict[str, float]] = {}
     for line in text.splitlines():
         raw = line.rstrip("\r\n")
@@ -69,16 +64,16 @@ def _parse_table(text: str) -> dict[str, dict[str, float]]:
             continue
         if set(raw.strip()) == {"-"}:
             continue
-        m = _ROW_NUMS_RE.search(raw)
-        if not m:
+        match = _ROW_NUMS_RE.search(raw)
+        if not match:
             continue
-        label = raw[: m.start()].rstrip()
+        label = raw[: match.start()].rstrip()
         row: dict[str, float] = {
-            "total_ms": float(m.group("total")),
-            "per_ns": float(m.group("pcall")),
+            "total_ms": float(match.group("total")),
+            "per_ns": float(match.group("pcall")),
         }
-        if m.group("delta") is not None:
-            row["delta_ns"] = float(m.group("delta"))
+        if match.group("delta") is not None:
+            row["delta_ns"] = float(match.group("delta"))
         out[label] = row
     return out
 
@@ -88,6 +83,7 @@ def _run_example(manifest: Path, example: str) -> str:
     if not cargo:
         print("error: `cargo` not found on PATH", file=sys.stderr)
         sys.exit(1)
+
     cmd = [
         cargo,
         "run",
@@ -118,14 +114,15 @@ def _build_examples(manifest: Path, examples: list[str]) -> None:
     if not cargo:
         print("error: `cargo` not found on PATH", file=sys.stderr)
         sys.exit(1)
-    for ex in examples:
+
+    for example in examples:
         subprocess.check_call(
             [
                 cargo,
                 "build",
                 "--release",
                 "--example",
-                ex,
+                example,
                 "--manifest-path",
                 str(manifest),
             ],
@@ -133,89 +130,284 @@ def _build_examples(manifest: Path, examples: list[str]) -> None:
         )
 
 
-def _pct_ht_faster(std_ns: float, ht_ns: float) -> Optional[float]:
-    """Percent lower latency for HT vs STD: (STD - HT) / STD * 100."""
-    if std_ns <= 0:
-        return None
-    return (std_ns - ht_ns) / std_ns * 100.0
+def _rows_from_output(
+    run_idx: int,
+    is_warmup: bool,
+    project_tag: str,
+    parsed_rows: dict[str, dict[str, float]],
+) -> tuple[list[dict[str, object]], list[str]]:
+    rows: list[dict[str, object]] = []
+    missing: list[str] = []
+
+    for metric, std_label, ht_label in COMPARISON_ROWS:
+        raw_label = ht_label if project_tag == "HT" else std_label
+        parsed = parsed_rows.get(raw_label)
+        if not parsed:
+            missing.append(f"{project_tag}:{metric} -> {raw_label}")
+            continue
+
+        rows.append(
+            {
+                "run_idx": run_idx,
+                "warmup": is_warmup,
+                "project": project_tag,
+                "metric": metric,
+                "raw_label": raw_label,
+                "total_ms": f"{parsed['total_ms']:.3f}",
+                "per_ns": f"{parsed['per_ns']:.1f}",
+                "delta_ns": f"{parsed['delta_ns']:.1f}" if "delta_ns" in parsed else "",
+            }
+        )
+
+    return rows, missing
+
+
+def _truthy(s: str) -> bool:
+    return s.strip().lower() in ("1", "true", "yes", "y", "t")
+
+
+def load_rows_from_csv(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Cannot summarize: no results CSV at {path}. Run the benchmark first."
+        )
+
+    rows: list[dict[str, object]] = []
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            row["warmup"] = _truthy(row.get("warmup", "False"))
+            rows.append(row)
+    return rows
+
+
+def _stats(values: list[float]) -> tuple[int, float, float, float, float]:
+    count = len(values)
+    if count == 0:
+        return (0, 0.0, 0.0, 0.0, 0.0)
+
+    mean = sum(values) / count
+    variance = sum((value - mean) ** 2 for value in values) / count
+    sd = math.sqrt(variance)
+    return (count, mean, sd, min(values), max(values))
+
+
+def _fmt_stats(values: list[float]) -> str:
+    count, mean, sd, lo, hi = _stats(values)
+    if count == 0:
+        return "n=0"
+    return (
+        f"n={count:<3} mean={mean:>7.2f} ns  "
+        f"sd={sd:>6.2f} ns  "
+        f"min={lo:>7.2f} ns  "
+        f"max={hi:>7.2f} ns"
+    )
+
+
+def _vals(rows: list[dict[str, object]], metric: str, project: str) -> list[float]:
+    return [
+        float(row["per_ns"])
+        for row in rows
+        if row["metric"] == metric and row["project"] == project
+    ]
+
+
+def _paired_diffs(
+    rows: list[dict[str, object]], metric: str, faster: str, slower: str
+) -> list[float]:
+    by_run: dict[int, dict[str, float]] = {}
+    for row in rows:
+        if row["metric"] != metric:
+            continue
+        run_idx = int(row["run_idx"])
+        by_run.setdefault(run_idx, {})[str(row["project"])] = float(row["per_ns"])
+
+    diffs: list[float] = []
+    for run_values in by_run.values():
+        if faster in run_values and slower in run_values:
+            diffs.append(run_values[slower] - run_values[faster])
+    return diffs
+
+
+def print_summary(rows: list[dict[str, object]]) -> None:
+    measured = [row for row in rows if row["warmup"] is False]
+    if not measured:
+        print("[expand] No non-warmup measurements.")
+        return
+
+    print("\n[expand] ===== Paired summary (warmup excluded) =====")
+    print("[expand] Positive paired delta means HT is faster than Standard.")
+
+    for metric, _, _ in COMPARISON_ROWS:
+        ht_vals = _vals(measured, metric, "HT")
+        std_vals = _vals(measured, metric, "STD")
+        paired = _paired_diffs(measured, metric, "HT", "STD")
+
+        print(f"\n  {metric}:")
+        print(f"    HT   {_fmt_stats(ht_vals)}")
+        print(f"    STD  {_fmt_stats(std_vals)}")
+
+        pair_n, pair_mean, pair_sd, pair_lo, pair_hi = _stats(paired)
+        _, ht_mean, _, _, _ = _stats(ht_vals)
+        _, std_mean, _, _, _ = _stats(std_vals)
+        pct = ((std_mean - ht_mean) / std_mean * 100.0) if std_mean > 0 else None
+        pct_s = f"{pct:+.2f}%" if pct is not None else "n/a"
+
+        if pair_n == 0:
+            print("    delta n=0")
+        else:
+            print(
+                "    delta "
+                f"n={pair_n:<3} mean={pair_mean:+7.2f} ns  "
+                f"sd={pair_sd:>6.2f} ns  "
+                f"min={pair_lo:+7.2f} ns  "
+                f"max={pair_hi:+7.2f} ns  "
+                f"HT faster={pct_s}"
+            )
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Compare Standard vs HT libfss expand benchmarks.")
-    p.add_argument(
+    parser = argparse.ArgumentParser(
+        description="Repeat and compare Standard vs HT libfss expand benchmarks."
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=30,
+        help="Measured rounds per project. Default: 30",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=1,
+        help="Warmup rounds per project written to CSV but excluded from summary. Default: 1",
+    )
+    parser.add_argument(
         "--build",
         action="store_true",
         help="Run `cargo build --release` for both examples before benchmarking.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--echo",
         action="store_true",
-        help="Print each program's full stdout before the comparison table.",
+        help="Print each program's full stdout during the run.",
     )
-    p.add_argument(
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=THIS_FILE.parent / "expand_results.csv",
+        help="Output CSV path. Default: bench_compare/expand_results.csv",
+    )
+    parser.add_argument(
         "--list-rows",
         action="store_true",
-        help="After the table, list parsed row labels that are not part of the fixed comparison map.",
+        help="Print parsed raw labels seen in the last round for each project.",
     )
-    args = p.parse_args()
+    parser.add_argument(
+        "--summarize",
+        action="store_true",
+        help="Do not run benchmarks; summarize the CSV at --out.",
+    )
+    args = parser.parse_args()
 
     std_manifest = _libfss_manifest("Standard")
     ht_manifest = _libfss_manifest("HT")
-    for path, name in [(std_manifest, "Standard libfss"), (ht_manifest, "HT libfss")]:
+    manifests = {"STD": std_manifest, "HT": ht_manifest}
+
+    for path, name in ((std_manifest, "Standard libfss"), (ht_manifest, "HT libfss")):
         if not path.is_file():
             print(f"error: missing {name} Cargo.toml: {path}", file=sys.stderr)
             sys.exit(1)
+
+    if args.summarize:
+        rows = load_rows_from_csv(args.out)
+        print(f"[expand] Loaded {len(rows)} rows from {args.out}")
+        print_summary(rows)
+        return
 
     if args.build:
         _build_examples(std_manifest, ["bench_expand"])
         _build_examples(ht_manifest, ["bench_ht_expand"])
 
-    std_out = _run_example(std_manifest, "bench_expand")
-    ht_out = _run_example(ht_manifest, "bench_ht_expand")
+    args.out.parent.mkdir(parents=True, exist_ok=True)
 
-    if args.echo:
-        print("======== Standard (bench_expand) ========")
-        print(std_out, end="" if std_out.endswith("\n") else "\n")
-        print("======== HT (bench_ht_expand) ===========")
-        print(ht_out, end="" if ht_out.endswith("\n") else "\n")
-        print()
+    headers = [
+        "run_idx",
+        "warmup",
+        "project",
+        "metric",
+        "raw_label",
+        "total_ms",
+        "per_ns",
+        "delta_ns",
+    ]
 
-    std_rows = _parse_table(std_out)
-    ht_rows = _parse_table(ht_out)
+    all_rows: list[dict[str, object]] = []
+    last_seen_labels: dict[str, list[str]] = {}
+    total_rounds = args.warmup + args.runs
 
-    w = 42
-    print(f"{'Metric':<{w}} {'STD ns/call':>14} {'HT ns/call':>14} {'HT-STD (ns)':>14} {'HT faster %':>14}")
-    print("-" * (w + 14 * 3 + 14 + 3))
+    print(f"[expand] Writing results to {args.out}")
+    print("[expand] Interleave order per round: HT -> STD")
+    print(
+        f"[expand] Total rounds per project: {total_rounds} "
+        f"({args.warmup} warmup + {args.runs} measured)"
+    )
 
-    missing: list[str] = []
-    for display, std_lbl, ht_lbl in COMPARISON_ROWS:
-        sr = std_rows.get(std_lbl)
-        hr = ht_rows.get(ht_lbl)
-        if not sr or not hr:
-            missing.append(f"{display}: STD={bool(sr)} HT={bool(hr)}")
-            continue
-        s_ns = sr["per_ns"]
-        h_ns = hr["per_ns"]
-        delta = h_ns - s_ns
-        pct = _pct_ht_faster(s_ns, h_ns)
-        pct_s = f"{pct:+.1f}" if pct is not None else "n/a"
-        print(f"{display:<{w}} {s_ns:>14.1f} {h_ns:>14.1f} {delta:>+14.1f} {pct_s:>14}")
+    with args.out.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
 
-    if missing:
-        print("\n(warning) Some comparison rows were skipped (label mismatch or parse miss):")
-        for m in missing:
-            print(f"  - {m}")
+        for run_idx in range(1, total_rounds + 1):
+            is_warmup = run_idx <= args.warmup
+            warmup_tag = " (warmup)" if is_warmup else ""
+            print(f"[expand] === round {run_idx}/{total_rounds}{warmup_tag} ===")
 
-    # Labels present in one run but not used in the pairing table (debug aid).
+            for project_tag, _, example in PROJECTS:
+                manifest = manifests[project_tag]
+                stdout = _run_example(manifest, example)
+
+                if args.echo:
+                    print(f"======== {project_tag} / {example} / round {run_idx} ========")
+                    print(stdout, end="" if stdout.endswith("\n") else "\n")
+
+                parsed_rows = _parse_table(stdout)
+                last_seen_labels[project_tag] = sorted(parsed_rows)
+                normalized_rows, missing = _rows_from_output(
+                    run_idx=run_idx,
+                    is_warmup=is_warmup,
+                    project_tag=project_tag,
+                    parsed_rows=parsed_rows,
+                )
+
+                for row in normalized_rows:
+                    writer.writerow(row)
+                    all_rows.append(row)
+                f.flush()
+
+                if missing:
+                    print(
+                        f"[expand] warning: skipped {len(missing)} rows for {project_tag}: "
+                        + "; ".join(missing),
+                        file=sys.stderr,
+                    )
+
+                full_rows = [
+                    row for row in normalized_rows if row["metric"] == "Full expand (no TLS)"
+                ]
+                if full_rows:
+                    print(
+                        f"           [{project_tag}] Full expand (no TLS): "
+                        f"{full_rows[0]['per_ns']} ns/call"
+                    )
+
+    print_summary(all_rows)
+
     if args.list_rows:
-        std_only = set(std_rows) - {t[1] for t in COMPARISON_ROWS}
-        ht_only = set(ht_rows) - {t[2] for t in COMPARISON_ROWS}
-        if std_only or ht_only:
-            print("\n(parsed labels not in COMPARISON_ROWS; add tuples to extend the table)")
-            for lbl in sorted(std_only):
-                print(f"  [STD] {lbl!r}")
-            for lbl in sorted(ht_only):
-                print(f"  [HT]  {lbl!r}")
+        print("\n[expand] Parsed labels from the last run:")
+        for project_tag in ("HT", "STD"):
+            print(f"  {project_tag}:")
+            for label in last_seen_labels.get(project_tag, []):
+                print(f"    {label!r}")
 
 
 if __name__ == "__main__":
