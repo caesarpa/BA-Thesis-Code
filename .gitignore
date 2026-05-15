@@ -1,0 +1,4 @@
+# Benchmark results
+bench_compare/*.csv
+bench_compare/*.json
+bench_compare/*.xlsx
